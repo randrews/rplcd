@@ -26,11 +26,17 @@ use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::{Rgb565, RgbColor};
 use embedded_graphics::prelude::Size;
-use embedded_graphics::primitives::{Primitive, PrimitiveStyleBuilder, Rectangle};
+use embedded_graphics::primitives::{Line, Primitive, PrimitiveStyleBuilder, Rectangle, StyledDrawable};
 use embedded_graphics::text::{Alignment, Text};
 use embedded_hal::delay::DelayNs;
 use fugit::RateExtU32;
 use ili9341::{DisplaySize240x320, Orientation};
+use rand::rngs::SmallRng;
+use rand::{RngCore, SeedableRng};
+use rp2040_hal::clocks;
+use rp2040_hal::gpio::DynFunction::Uart;
+use rp2040_hal::gpio::FunctionUart;
+use rp2040_hal::uart::{DataBits, StopBits, UartConfig, UartPeripheral};
 use crate::hacks::{MyDelay, SpiWithCS};
 
 #[entry]
@@ -87,7 +93,26 @@ fn main() -> ! {
         Alignment::Center,
     ).draw(&mut ili).unwrap();
 
+    let mut r = SmallRng::seed_from_u64(1337);
+    let line_style = PrimitiveStyleBuilder::new().stroke_width(1);
+
+    //delay.delay_ms(1000);
+
+    let tx = pins.gpio16.into_function::<FunctionUart>();
+    let rx = pins.gpio17.into_function::<FunctionUart>();
+    let uart = UartPeripheral::new(pac.UART0, (tx, rx), &mut pac.RESETS)
+        .enable(UartConfig::new(115200.Hz(), DataBits::Eight, None, StopBits::One), clocks.peripheral_clock.freq()).unwrap();
+
     loop {
-        delay.delay_ms(1000);
+        let mut buf = [0u8; 10];
+
+        let p1 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
+        let p2 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
+        let ls = line_style.stroke_color(Rgb565::new(r.next_u32() as u8, r.next_u32() as u8, r.next_u32() as u8));
+        Line::new(p1, p2).draw_styled(&ls.build(), &mut ili).unwrap();
+        //info!("Line: ({}, {}), ({}, {})", p1.x, p1.y, p2.x, p2.y);
+        if let Ok(n) = uart.read_raw(&mut buf) {
+            info!("Read: {}", core::str::from_utf8(&buf).unwrap());
+        }
     }
 }
