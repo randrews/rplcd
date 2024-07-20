@@ -86,15 +86,15 @@ fn main() -> ! {
         .build();
     Rectangle::new(Point::zero(), Size::new(320, 240)).into_styled(bg_style).draw(&mut ili).unwrap();
 
-    Text::with_alignment(
-        "Mem cleared\ndefaults set",
-        Point::new(160, 120),
-        MonoTextStyle::new(&FONT_6X10, Rgb565::GREEN),
-        Alignment::Center,
-    ).draw(&mut ili).unwrap();
+    // Text::with_alignment(
+    //     "Mem cleared\ndefaults set",
+    //     Point::new(160, 120),
+    //     MonoTextStyle::new(&FONT_6X10, Rgb565::GREEN),
+    //     Alignment::Center,
+    // ).draw(&mut ili).unwrap();
 
     let mut r = SmallRng::seed_from_u64(1337);
-    let line_style = PrimitiveStyleBuilder::new().stroke_width(1);
+    //let line_style = PrimitiveStyleBuilder::new().stroke_width(1);
 
     //delay.delay_ms(1000);
 
@@ -103,16 +103,48 @@ fn main() -> ! {
     let uart = UartPeripheral::new(pac.UART0, (tx, rx), &mut pac.RESETS)
         .enable(UartConfig::new(115200.Hz(), DataBits::Eight, None, StopBits::One), clocks.peripheral_clock.freq()).unwrap();
 
-    loop {
-        let mut buf = [0u8; 10];
+    let mut screen_buf = [0u8; 41 * 30];
+    let mut cursor = 0;
 
-        let p1 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
-        let p2 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
-        let ls = line_style.stroke_color(Rgb565::new(r.next_u32() as u8, r.next_u32() as u8, r.next_u32() as u8));
-        Line::new(p1, p2).draw_styled(&ls.build(), &mut ili).unwrap();
-        //info!("Line: ({}, {}), ({}, {})", p1.x, p1.y, p2.x, p2.y);
+    loop {
+
+        // let p1 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
+        // let p2 = Point::new((r.next_u32() % 320) as i32, (r.next_u32() % 240) as i32);
+        // let ls = line_style.stroke_color(Rgb565::new(r.next_u32() as u8, r.next_u32() as u8, r.next_u32() as u8));
+        // Line::new(p1, p2).draw_styled(&ls.build(), &mut ili).unwrap();
+
+        let mut buf = [0u8; 4];
+        let mut redraw = false;
         if let Ok(n) = uart.read_raw(&mut buf) {
-            info!("Read: {}", core::str::from_utf8(&buf).unwrap());
+            if buf[0] == 13 { // newline...
+                screen_buf[cursor] = '\n' as u8;
+                cursor += 1;
+                redraw = true
+            } else {
+                if let Ok(s) = core::str::from_utf8(&buf[0..n]) {
+                    let s: u8 = s.chars().next().unwrap() as u8;
+                    // The string is always one ch long; it's a single keypress
+                    info!("Read: {}", s);
+                    screen_buf[cursor] = s;
+                    cursor += 1;
+                    if cursor % 40 == 0 {
+                        screen_buf[cursor] = '\n' as u8;
+                        cursor += 1
+                    }
+                    redraw = true
+                }
+            }
+
+            if redraw {
+                let bs = core::str::from_utf8(&screen_buf[0 .. cursor]).unwrap();
+                info!("screen_buf: '{}'", bs);
+                Text::with_alignment(
+                    bs,
+                    Point::new(10, 10),
+                    MonoTextStyle::new(&FONT_6X10, Rgb565::GREEN),
+                    Alignment::Left,
+                ).draw(&mut ili).unwrap();
+            }
         }
     }
 }
